@@ -357,6 +357,7 @@ def render_template(
 
         posthog_app_context = {
             "current_user": None,
+            "current_project": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": "$pageview",
@@ -390,6 +391,7 @@ def render_template(
                 posthog_app_context["current_team"] = team_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 posthog_app_context["default_event_name"] = get_default_event_name(user.team)
+                # project_serialized = ProjectSerializer
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
