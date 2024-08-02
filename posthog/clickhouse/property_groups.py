@@ -15,10 +15,10 @@ class PropertyGroupDefinition:
 
 
 class PropertyGroupManager:
-    def __init__(self, cluster: str, table: str, source_column: str) -> None:
+    def __init__(self, cluster: str, table: str, column: str) -> None:
         self.__cluster = cluster
         self.__table = table
-        self.__source_column = source_column
+        self.__column = column
         self.__groups: MutableMapping[str, PropertyGroupDefinition] = {}
 
     def register(self, name: str, definition: PropertyGroupDefinition) -> None:
@@ -31,15 +31,15 @@ class PropertyGroupManager:
                 yield name
 
     def __get_map_expression(self, definition: PropertyGroupDefinition) -> str:
-        return f"mapSort(mapFilter((key, _) -> {definition.key_filter_expression}, CAST(JSONExtractKeysAndValues({self.__source_column}, 'String'), 'Map(String, String)')))"
+        return f"mapSort(mapFilter((key, _) -> {definition.key_filter_expression}, CAST(JSONExtractKeysAndValues({self.__column}, 'String'), 'Map(String, String)')))"
 
     def get_alter_create_statements(self, name: str) -> Iterable[str]:
-        column_name = f"{self.__source_column}_group_{name}"
         definition = self.__groups[name]
+        map_column = f"{self.__column}_group_{name}"
         return [
-            f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD COLUMN {column_name} Map(String, String) MATERIALIZED {self.__get_map_expression(definition)} CODEC({definition.codec})",
-            f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD INDEX {column_name}_keys_bf mapKeys({column_name}) TYPE bloom_filter",
-            f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD INDEX {column_name}_values_bf mapValues({column_name}) TYPE bloom_filter",
+            f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD COLUMN {map_column} Map(String, String) MATERIALIZED {self.__get_map_expression(definition)} CODEC({definition.codec})",
+            f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD INDEX {map_column}_keys_bf mapKeys({map_column}) TYPE bloom_filter",
+            f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD INDEX {map_column}_values_bf mapValues({map_column}) TYPE bloom_filter",
         ]
 
 
