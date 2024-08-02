@@ -1,4 +1,4 @@
-from collections.abc import Iterable, MutableMapping
+from collections.abc import Callable, Iterable, MutableMapping
 from dataclasses import dataclass
 
 from posthog import settings
@@ -6,8 +6,12 @@ from posthog import settings
 
 @dataclass
 class PropertyGroupDefinition:
-    filter_expression: str
+    key_filter_expression: str
+    key_filter_function: Callable[[str], bool]
     codec: str = "ZSTD(1)"
+
+    def contains(self, key: str) -> bool:
+        return self.key_filter_function(key)
 
 
 class PropertyGroupManager:
@@ -21,8 +25,13 @@ class PropertyGroupManager:
         assert name not in self.__groups, "property group names can only be used once"
         self.__groups[name] = definition
 
+    def find_property_groups(self, key: str) -> Iterable[str]:
+        for name, definition in self.__groups.items():
+            if definition.contains(key):
+                yield name
+
     def __get_map_expression(self, definition: PropertyGroupDefinition) -> str:
-        return f"mapSort(mapFilter((key, _) -> {definition.filter_expression}, CAST(JSONExtractKeysAndValues({self.__source_column}, 'String'), 'Map(String, String)')))"
+        return f"mapSort(mapFilter((key, _) -> {definition.key_filter_expression}, CAST(JSONExtractKeysAndValues({self.__source_column}, 'String'), 'Map(String, String)')))"
 
     def get_alter_create_statements(self, name: str) -> Iterable[str]:
         column_name = f"{self.__source_column}_group_{name}"
@@ -68,8 +77,15 @@ ignore_custom_properties = [
 sharded_events_property_groups.register(
     "custom",
     PropertyGroupDefinition(
-        f"key NOT LIKE '$%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in ignore_custom_properties) + f")"
+        f"key NOT LIKE '$%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in ignore_custom_properties) + f")",
+        lambda key: not key.startswith("$") and key not in ignore_custom_properties,
     ),
 )
 
-sharded_events_property_groups.register("feature_flags", PropertyGroupDefinition("key like '$feature/%'"))
+sharded_events_property_groups.register(
+    "feature_flags",
+    PropertyGroupDefinition(
+        "key like '$feature/%'",
+        lambda key: key.startswith("$feature/"),
+    ),
+)
