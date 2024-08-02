@@ -5,6 +5,7 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
+from posthog.clickhouse.property_groups import events_property_groups
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.constants import (
@@ -1039,6 +1040,7 @@ class _Printer(Visitor):
         while isinstance(table, ast.TableAliasType):
             table = table.table_type
 
+        from_property_group = False
         args: list[str] = []
 
         if self.context.modifiers.materializationMode != "disabled":
@@ -1058,6 +1060,23 @@ class _Printer(Visitor):
                     property_sql = self._print_identifier(materialized_column)
                     property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
                     materialized_property_sql = property_sql
+
+                # TODO: Clean up table and field name access in the property group manager.
+                elif table_name == "events" and field_name == "properties":
+                    # For now, we're assuming that properties are in either no
+                    # groups or one group, so just using the first group
+                    # returned is fine. If we start putting properties in
+                    # multiple groups, this should be revisited to find the
+                    # optimal set (i.e. smallest set) of groups to read from.
+                    property_name = type.chain[0]
+                    for property_group_column in events_property_groups.get_property_group_columns(property_name):
+                        printed_column = (
+                            f"{self.visit(field_type.table_type)}.{self._print_identifier(property_group_column)}"
+                        )
+                        printed_property_name = self.context.add_value(type.chain[0])
+                        materialized_property_sql = f"has({printed_column}, {printed_property_name}) ? {printed_column}[{printed_property_name}] : null"
+                        from_property_group = True
+                        break
             elif (
                 self.context.within_non_hogql_query
                 and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
@@ -1074,22 +1093,25 @@ class _Printer(Visitor):
                     materialized_property_sql = self._print_identifier(materialized_column)
 
             if materialized_property_sql is not None:
-                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
-                    materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
-                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
-                    materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
+                if not from_property_group:
+                    # TODO: rematerialize all columns to properly support empty strings and "null" string values.
+                    if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
+                        materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
+                    else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
+                        materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
 
                 if len(type.chain) == 1:
                     return materialized_property_sql
                 else:
                     for name in type.chain[1:]:
                         args.append(self.context.add_value(name))
-                    return self._unsafe_json_extract_trim_quotes(materialized_property_sql, args)
+                    return self._unsafe_json_extract(
+                        materialized_property_sql, args, trim_quotes=not from_property_group
+                    )
 
         for name in type.chain:
             args.append(self.context.add_value(name))
-        return self._unsafe_json_extract_trim_quotes(self.visit(field_type), args)
+        return self._unsafe_json_extract(self.visit(field_type), args, trim_quotes=not from_property_group)
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         sample_value = self.visit_ratio_expr(node.sample_value)
@@ -1216,8 +1238,13 @@ class _Printer(Visitor):
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
-    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
-        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
+    def _unsafe_json_extract(self, unsafe_field: str, unsafe_args: list[str], trim_quotes: bool) -> str:
+        extract_func = "JSONExtractRaw" if trim_quotes else "JSONExtractString"
+        extract_expr = f"{extract_func}({', '.join([unsafe_field, *unsafe_args])})"
+        if trim_quotes:
+            return f"replaceRegexpAll(nullIf(nullIf({extract_expr}, ''), 'null'), '^\"|\"$', '')"
+        else:
+            return extract_expr
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
