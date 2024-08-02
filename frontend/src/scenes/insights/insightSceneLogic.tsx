@@ -199,7 +199,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 },
                 {
                     fromPersistentApi: false,
-                    overrideFilter: false,
+                    overrideQuery: false,
                 }
             )
         },
@@ -281,7 +281,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         },
                         {
                             fromPersistentApi: false,
-                            overrideFilter: true,
+                            overrideQuery: true,
                         }
                     )
 
