@@ -26,17 +26,20 @@ class PropertyGroupManager:
         assert name not in self.__groups, "property group names can only be used once"
         self.__groups[name] = definition
 
-    def find_property_groups(self, key: str) -> Iterable[str]:
-        for name, definition in self.__groups.items():
-            if definition.contains(key):
-                yield name
+    def __get_map_column(self, name: str) -> str:
+        return f"{self.__column}_group_{name}"
 
     def __get_map_expression(self, definition: PropertyGroupDefinition) -> str:
         return f"mapSort(mapFilter((key, _) -> {definition.key_filter_expression}, CAST(JSONExtractKeysAndValues({self.__column}, 'String'), 'Map(String, String)')))"
 
+    def get_property_group_columns(self, key: str) -> Iterable[str]:
+        for name, definition in self.__groups.items():
+            if definition.contains(key):
+                yield self.__get_map_column(name)
+
     def get_alter_create_statements(self, name: str) -> Iterable[str]:
         definition = self.__groups[name]
-        map_column = f"{self.__column}_group_{name}"
+        map_column = self.__get_map_column(name)
         column_definition = (
             f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD COLUMN {map_column} Map(String, String)"
         )
