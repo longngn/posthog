@@ -142,7 +142,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     return !objectsEqual(query, savedInsight.query)
                 } else if (savedInsight.query && isInsightVizNode(savedInsight.query)) {
                     // saved insight query
-                    if (!isInsightVizNode(query?.source)) {
+                    if (!isInsightVizNode(query)) {
                         return true
                     }
 
@@ -153,7 +153,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
 
                 // new insight
-                if (!isInsightVizNode(query?.source)) {
+                if (!isInsightVizNode(query)) {
                     return true
                 }
 
@@ -207,9 +207,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         cancelChanges: () => {
-            const savedFilters = values.savedInsight.filters
+            const savedQuery = values.savedInsight.query
             const savedResult = values.savedInsight.result
-            actions.setQuery(savedFilters ? queryFromFilters(savedFilters) : null)
+            actions.setQuery(savedQuery || null)
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
     })),
