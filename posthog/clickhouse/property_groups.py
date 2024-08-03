@@ -17,8 +17,8 @@ class PropertyGroupDefinition:
         return self.key_filter_function(property_key)
 
 
-Table = str
-Column = str
+TableName = str
+ColumnName = str
 PropertyGroupName = str
 
 
@@ -26,24 +26,26 @@ class PropertyGroupManager:
     def __init__(
         self,
         cluster: str,
-        groups: Mapping[Table, Mapping[Column, Mapping[PropertyGroupName, PropertyGroupDefinition]]],
+        groups: Mapping[TableName, Mapping[ColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]],
     ) -> None:
         self.__cluster = cluster
         self.__groups = groups
 
-    def __get_map_column_name(self, column: Column, group_name: PropertyGroupName) -> str:
+    def __get_map_column_name(self, column: ColumnName, group_name: PropertyGroupName) -> str:
         return f"{column}_group_{group_name}"
 
-    def __get_map_expression(self, column: Column, definition: PropertyGroupDefinition) -> str:
+    def __get_map_expression(self, column: ColumnName, definition: PropertyGroupDefinition) -> str:
         return f"mapSort(mapFilter((key, _) -> {definition.key_filter_expression}, CAST(JSONExtractKeysAndValues({column}, 'String'), 'Map(String, String)')))"
 
-    def get_property_group_columns(self, table: Table, column: Column, property_key: str) -> Iterable[str]:
+    def get_property_group_columns(self, table: TableName, column: ColumnName, property_key: str) -> Iterable[str]:
         if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(column)):
             for group_name, group_definition in column_groups.items():
                 if group_definition.contains(property_key):
                     yield self.__get_map_column_name(column, group_name)
 
-    def get_alter_create_statements(self, table: Table, column: Column, group_name: PropertyGroupName) -> Iterable[str]:
+    def get_alter_create_statements(
+        self, table: TableName, column: ColumnName, group_name: PropertyGroupName
+    ) -> Iterable[str]:
         group_definition = self.__groups[table][column][group_name]
         map_column_name = self.__get_map_column_name(column, group_name)
         column_definition = (
