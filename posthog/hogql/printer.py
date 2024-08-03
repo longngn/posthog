@@ -1040,7 +1040,6 @@ class _Printer(Visitor):
         while isinstance(table, ast.TableAliasType):
             table = table.table_type
 
-        from_property_group = False
         args: list[str] = []
 
         if self.context.modifiers.materializationMode != "disabled":
@@ -1074,8 +1073,11 @@ class _Printer(Visitor):
                             f"{self.visit(field_type.table_type)}.{self._print_identifier(property_group_column)}"
                         )
                         printed_property_name = self.context.add_value(property_name)
+                        # If the key we're looking for doesn't exist in the map
+                        # for this property group, an empty string (the default
+                        # value for the `String` type) is returned. Since that
+                        # is a valid property value, we need to check it here.
                         materialized_property_sql = f"has({printed_column}, {printed_property_name}) ? {printed_column}[{printed_property_name}] : null"
-                        from_property_group = True
                         break
             elif (
                 self.context.within_non_hogql_query
@@ -1093,12 +1095,11 @@ class _Printer(Visitor):
                     materialized_property_sql = self._print_identifier(materialized_column)
 
             if materialized_property_sql is not None:
-                if not from_property_group:
-                    # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                    if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
-                        materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
-                    else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
-                        materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
+                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
+                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
+                    materialized_property_sql = f"nullIf({materialized_property_sql}, '')"
+                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
+                    materialized_property_sql = f"nullIf(nullIf({materialized_property_sql}, ''), 'null')"
 
                 if len(type.chain) == 1:
                     return materialized_property_sql
