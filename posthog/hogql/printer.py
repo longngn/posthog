@@ -1060,7 +1060,7 @@ class _Printer(Visitor):
                     property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
                     materialized_property_sql = property_sql
                 else:
-                    property_name = type.chain[0]
+                    property_name = str(type.chain[0])
                     # For now, we're assuming that properties are in either no
                     # groups or one group, so just using the first group
                     # returned is fine. If we start putting properties in
