@@ -5,7 +5,7 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
-from posthog.clickhouse.property_groups import events_property_groups
+from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.constants import (
@@ -1060,20 +1060,20 @@ class _Printer(Visitor):
                     property_sql = self._print_identifier(materialized_column)
                     property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
                     materialized_property_sql = property_sql
-
-                # TODO: Clean up table and field name access in the property group manager.
-                elif table_name == "events" and field_name == "properties":
+                else:
+                    property_name = type.chain[0]
                     # For now, we're assuming that properties are in either no
                     # groups or one group, so just using the first group
                     # returned is fine. If we start putting properties in
                     # multiple groups, this should be revisited to find the
                     # optimal set (i.e. smallest set) of groups to read from.
-                    property_name = type.chain[0]
-                    for property_group_column in events_property_groups.get_property_group_columns(property_name):
+                    for property_group_column in property_groups.get_property_group_columns(
+                        table_name, field_name, property_name
+                    ):
                         printed_column = (
                             f"{self.visit(field_type.table_type)}.{self._print_identifier(property_group_column)}"
                         )
-                        printed_property_name = self.context.add_value(type.chain[0])
+                        printed_property_name = self.context.add_value(property_name)
                         materialized_property_sql = f"has({printed_column}, {printed_property_name}) ? {printed_column}[{printed_property_name}] : null"
                         from_property_group = True
                         break

@@ -1,6 +1,7 @@
-from collections.abc import Callable, Iterable, MutableMapping
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 import dataclasses
+from collections.abc import Mapping
 
 from posthog import settings
 
@@ -10,47 +11,51 @@ class PropertyGroupDefinition:
     key_filter_expression: str
     key_filter_function: Callable[[str], bool]
     codec: str = "ZSTD(1)"
+    is_materialized: bool = True
 
-    def contains(self, key: str) -> bool:
-        return self.key_filter_function(key)
+    def contains(self, property_key: str) -> bool:
+        return self.key_filter_function(property_key)
+
+
+Table = str
+Column = str
+PropertyGroupName = str
 
 
 class PropertyGroupManager:
-    def __init__(self, cluster: str, table: str, column: str, materialized: bool = True) -> None:
+    def __init__(
+        self,
+        cluster: str,
+        groups: Mapping[Table, Mapping[Column, Mapping[PropertyGroupName, PropertyGroupDefinition]]],
+    ) -> None:
         self.__cluster = cluster
-        self.__table = table
-        self.__column = column
-        self.__materialized = materialized
-        self.__groups: MutableMapping[str, PropertyGroupDefinition] = {}
+        self.__groups = groups
 
-    def register(self, name: str, definition: PropertyGroupDefinition) -> None:
-        assert name not in self.__groups, "property group names can only be used once"
-        self.__groups[name] = definition
+    def __get_map_column_name(self, column: Column, group_name: PropertyGroupName) -> str:
+        return f"{column}_group_{group_name}"
 
-    def __get_map_column(self, name: str) -> str:
-        return f"{self.__column}_group_{name}"
+    def __get_map_expression(self, column: Column, definition: PropertyGroupDefinition) -> str:
+        return f"mapSort(mapFilter((key, _) -> {definition.key_filter_expression}, CAST(JSONExtractKeysAndValues({column}, 'String'), 'Map(String, String)')))"
 
-    def __get_map_expression(self, definition: PropertyGroupDefinition) -> str:
-        return f"mapSort(mapFilter((key, _) -> {definition.key_filter_expression}, CAST(JSONExtractKeysAndValues({self.__column}, 'String'), 'Map(String, String)')))"
+    def get_property_group_columns(self, table: Table, column: Column, property_key: str) -> Iterable[str]:
+        if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(column)):
+            for group_name, group_definition in column_groups.items():
+                if group_definition.contains(property_key):
+                    yield self.__get_map_column_name(column, group_name)
 
-    def get_property_group_columns(self, key: str) -> Iterable[str]:
-        for name, definition in self.__groups.items():
-            if definition.contains(key):
-                yield self.__get_map_column(name)
-
-    def get_alter_create_statements(self, name: str) -> Iterable[str]:
-        definition = self.__groups[name]
-        map_column = self.__get_map_column(name)
+    def get_alter_create_statements(self, table: Table, column: Column, group_name: PropertyGroupName) -> Iterable[str]:
+        group_definition = self.__groups[table][column][group_name]
+        map_column_name = self.__get_map_column_name(column, group_name)
         column_definition = (
-            f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD COLUMN {map_column} Map(String, String)"
+            f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD COLUMN {map_column_name} Map(String, String)"
         )
-        if not self.__materialized:
+        if not group_definition.is_materialized:
             return [column_definition]
         else:
             return [
-                f"{column_definition} MATERIALIZED {self.__get_map_expression(definition)} CODEC({definition.codec})",
-                f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD INDEX {map_column}_keys_bf mapKeys({map_column}) TYPE bloom_filter",
-                f"ALTER TABLE {self.__table} ON CLUSTER {self.__cluster} ADD INDEX {map_column}_values_bf mapValues({map_column}) TYPE bloom_filter",
+                f"{column_definition} MATERIALIZED {self.__get_map_expression(column, group_definition)} CODEC({group_definition.codec})",
+                f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD INDEX {map_column_name}_keys_bf mapKeys({map_column_name}) TYPE bloom_filter",
+                f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD INDEX {map_column_name}_values_bf mapValues({map_column_name}) TYPE bloom_filter",
             ]
 
 
@@ -102,7 +107,7 @@ property_groups = PropertyGroupManager(
         "sharded_events": event_property_group_definitions,
         "events": {
             column_name: {
-                group_name: dataclasses.replace(group_definition, materialize=False)
+                group_name: dataclasses.replace(group_definition, is_materialized=False)
                 for group_name, group_definition in column_group_definitions.items()
             }
             for column_name, column_group_definitions in event_property_group_definitions.items()
