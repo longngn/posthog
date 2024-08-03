@@ -1,5 +1,6 @@
 from collections.abc import Callable, Iterable, MutableMapping
 from dataclasses import dataclass
+import dataclasses
 
 from posthog import settings
 
@@ -53,9 +54,6 @@ class PropertyGroupManager:
             ]
 
 
-events_property_groups = PropertyGroupManager(settings.CLICKHOUSE_CLUSTER, "events", "properties", materialized=False)
-sharded_events_property_groups = PropertyGroupManager(settings.CLICKHOUSE_CLUSTER, "sharded_events", "properties")
-
 ignore_custom_properties = [
     # `token` & `distinct_id` properties are sent with ~50% of events and by
     # many teams, and should not be treated as custom properties and their use
@@ -85,19 +83,29 @@ ignore_custom_properties = [
     "rdt_cid",  # reddit
 ]
 
-for manager in [events_property_groups, sharded_events_property_groups]:
-    manager.register(
-        "custom",
-        PropertyGroupDefinition(
+event_property_group_definitions = {
+    "properties": {
+        "custom": PropertyGroupDefinition(
             f"key NOT LIKE '$%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in ignore_custom_properties) + f")",
             lambda key: not key.startswith("$") and key not in ignore_custom_properties,
         ),
-    )
-
-    manager.register(
-        "feature_flags",
-        PropertyGroupDefinition(
+        "feature_flags": PropertyGroupDefinition(
             "key like '$feature/%'",
             lambda key: key.startswith("$feature/"),
         ),
-    )
+    }
+}
+
+property_groups = PropertyGroupManager(
+    settings.CLICKHOUSE_CLUSTER,
+    {
+        "sharded_events": event_property_group_definitions,
+        "events": {
+            column_name: {
+                group_name: dataclasses.replace(group_definition, materialize=False)
+                for group_name, group_definition in column_group_definitions.items()
+            }
+            for column_name, column_group_definitions in event_property_group_definitions.items()
+        },
+    },
+)
