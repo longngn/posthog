@@ -1105,13 +1105,11 @@ class _Printer(Visitor):
                 else:
                     for name in type.chain[1:]:
                         args.append(self.context.add_value(name))
-                    return self._unsafe_json_extract(
-                        materialized_property_sql, args, trim_quotes=not from_property_group
-                    )
+                    return self._unsafe_json_extract_trim_quotes(materialized_property_sql, args)
 
         for name in type.chain:
             args.append(self.context.add_value(name))
-        return self._unsafe_json_extract(self.visit(field_type), args, trim_quotes=not from_property_group)
+        return self._unsafe_json_extract_trim_quotes(self.visit(field_type), args)
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         sample_value = self.visit_ratio_expr(node.sample_value)
@@ -1238,13 +1236,8 @@ class _Printer(Visitor):
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
-    def _unsafe_json_extract(self, unsafe_field: str, unsafe_args: list[str], trim_quotes: bool) -> str:
-        extract_func = "JSONExtractRaw" if trim_quotes else "JSONExtractString"
-        extract_expr = f"{extract_func}({', '.join([unsafe_field, *unsafe_args])})"
-        if trim_quotes:
-            return f"replaceRegexpAll(nullIf(nullIf({extract_expr}, ''), 'null'), '^\"|\"$', '')"
-        else:
-            return extract_expr
+    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
+        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
