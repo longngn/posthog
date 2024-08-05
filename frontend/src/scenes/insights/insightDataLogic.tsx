@@ -41,7 +41,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['queryBasedInsight', 'savedInsight'],
+            ['insight', 'savedInsight'],
             dataNodeLogic({
                 key: insightVizDataNodeKey(props),
                 loadPriority: props.loadPriority,
@@ -99,7 +99,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         query: [
-            (s) => [s.propsQuery, s.queryBasedInsight, s.internalQuery, s.filterTestAccountsDefault],
+            (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault],
             (propsQuery, insight, internalQuery, filterTestAccountsDefault): Node | null =>
                 propsQuery ||
                 internalQuery ||
@@ -114,7 +114,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         exportContext: [
-            (s) => [s.query, s.queryBasedInsight],
+            (s) => [s.query, s.insight],
             (query, insight) => {
                 if (!query) {
                     // if we're here without a query then an empty query context is not the problem
