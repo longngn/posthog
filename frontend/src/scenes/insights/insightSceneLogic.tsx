@@ -92,14 +92,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
     }),
     selectors(() => ({
-        legacyInsightSelector: [
-            (s) => [s.insightLogicRef],
-            (insightLogicRef) => insightLogicRef?.logic.selectors.legacyInsight,
-        ],
-        legacyInsight: [
-            (s) => [(state, props) => s.legacyInsightSelector?.(state, props)?.(state, props)],
-            (insight) => insight,
-        ],
         queryBasedInsightSelector: [
             (s) => [s.insightLogicRef],
             (insightLogicRef) => insightLogicRef?.logic.selectors.queryBasedInsight,
@@ -194,7 +186,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             values.insightDataLogicRef?.logic.actions.setQuery(examples.DataWarehouse)
             values.insightLogicRef?.logic.actions.setInsight(
                 {
-                    ...createEmptyInsight('new-dataWarehouse', false),
+                    ...createEmptyInsight('new-dataWarehouse'),
                     ...(q ? { query: JSON.parse(q) } : {}),
                 },
                 {
@@ -271,11 +263,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             // reset the insight's state if we have to
             if (initial || method === 'PUSH' || filters || q) {
                 if (insightId === 'new') {
-                    const teamFilterTestAccounts = values.currentTeam?.test_account_filters_default_checked || false
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
-                            ...createEmptyInsight('new', teamFilterTestAccounts),
-                            ...(filters ? { filters: cleanFilters(filters || {}, teamFilterTestAccounts) } : {}),
+                            ...createEmptyInsight('new'),
+                            ...(filters ? { filters: cleanFilters(filters || {}) } : {}),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                             ...(q ? { query: JSON.parse(q) } : {}),
                         },
